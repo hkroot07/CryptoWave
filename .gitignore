@@ -1,0 +1,8 @@
+bin/
+.env
+*.log
+*.bin
+.vscode/
+*.swp
+*.swo
+
