@@ -5,4 +5,7 @@ bin/
 .vscode/
 *.swp
 *.swo
-
+# ignore bd 
+*.db
+*.sqlite
+*.sqlite3
