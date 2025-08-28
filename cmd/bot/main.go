@@ -5,12 +5,25 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 
 	// Importing a library to work with Telegram Bot API
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+// Structure for parsing the response from CoinGecko API
+// JSON from the API will be automatically converted to this structure
+type CoinGeckoResponse struct {
+	Bitcoin struct {
+		Usd float64 `json:"usd"`
+	} `json:"bitcoin"`
+}
 
 // Function main
 // Entry point to the program
@@ -41,22 +54,65 @@ func main() {
 
 	for update := range updates {
 
-		if update.Message == nil {
+		if update.Message == nil || !update.Message.IsCommand() {
 			continue
 		}
 
-		// We log who wrote what
-		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-
-		// We are preparing a response message.
-		// NewMessage() creates a new message.
-		// The first argument is the chat ID where to send the message.
-		// The second argument is the message text.
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Привет! Я твой первый бот на Go! Ты написал: "+update.Message.Text)
-
+		// Create a message for the reply
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+		// Process the command
+		switch update.Message.Command() {
+		case "start":
+			msg.Text = "Привет! Я твой крипто-бот 🤖\nЯ могу показать актуальные цены на криптовалюты.\nНапиши /price BTC"
+		case "price", "p":
+			// Get command arguments (e.g. "BTC" from "/price BTC")
+			args := update.Message.CommandArguments()
+			coin := strings.ToUpper(args)
+			if coin == "" {
+				coin = "BTC" // Default value
+			}
+			// Get price from API
+			price, err := getCryptoPrice(coin)
+			if err != nil {
+				log.Printf("Ошибка получения цены: %v", err)
+				msg.Text = "Извини, не могу получить данные 😕 Попробуй позже."
+			} else {
+				msg.Text = fmt.Sprintf("💰 %s: $%.2f", coin, price)
+			}
+		default:
+			msg.Text = "Я не знаю такой команды. Попробуй /start"
+		}
 		// Sending a message
 		if _, err := bot.Send(msg); err != nil {
 			log.Panic(err)
 		}
 	}
+}
+
+// Function to get the price of a cryptocurrency
+func getCryptoPrice(coinSymbol string) (float64, error) {
+	if coinSymbol != "BTC" {
+		return 0, fmt.Errorf("пока поддерживается только BTC")
+	}
+	// Forming a URL request to the API
+	url := "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+	// Perform an HTTP GET request
+	resp, err := http.Get(url)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	// Parse JSON into our structure
+	var data CoinGeckoResponse
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return 0, err
+	}
+	// Return the price
+	return data.Bitcoin.Usd, nil
 }
