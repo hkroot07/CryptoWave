@@ -6,26 +6,17 @@ package main
 
 import (
 	"crypto-bot/internal/bot"
-	"encoding/json"
+	"database/sql"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	// Importing a library to work with Telegram Bot API
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
-
-// Structure for parsing the response from CoinGecko API
-// JSON from the API will be automatically converted to this structure
-type CoinGeckoResponse struct {
-	Bitcoin struct {
-		Usd float64 `json:"usd"`
-	} `json:"bitcoin"`
-}
 
 // Function main
 // Entry point to the program
@@ -51,7 +42,10 @@ func main() {
 	// We display information that the bot was launched on behalf of its username
 	log.Printf("Авторизован как %s", botAPI.Self.UserName)
 
-	// We set up a channel from which we will receive updates (messages from users)
+	// Start a background goroutine to check prices
+	go startPriceChecker(db, botAPI)
+
+	// Main message processing loop
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
@@ -80,7 +74,7 @@ func main() {
 				coin = "BTC" // Default value
 			}
 			// Get price from API
-			price, err := getCryptoPrice(coin)
+			price, err := bot.GetCryptoPrice(coin)
 			if err != nil {
 				log.Printf("Ошибка получения цены: %v", err)
 				msg.Text = "Извини, не могу получить данные 😕 Попробуй позже."
@@ -138,30 +132,12 @@ func main() {
 	}
 }
 
-// Function to get the price of a cryptocurrency
-func getCryptoPrice(coinSymbol string) (float64, error) {
-	if coinSymbol != "BTC" {
-		return 0, fmt.Errorf("пока поддерживается только BTC")
+// startPriceChecker starts a background price check every 60 seconds
+func startPriceChecker(db *sql.DB, botAPI *tgbotapi.BotAPI) {
+	ticker := time.NewTicker(60 * time.Second) // Check every minute
+	defer ticker.Stop()
+
+	for range ticker.C {
+		bot.CheckAndNotify(db, botAPI)
 	}
-	// Forming a URL request to the API
-	url := "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-	// Perform an HTTP GET request
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, err
-	}
-	// Parse JSON into our structure
-	var data CoinGeckoResponse
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		return 0, err
-	}
-	// Return the price
-	return data.Bitcoin.Usd, nil
 }
